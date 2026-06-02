@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://fullstackdanish.netlify.app/sitemap.xml
