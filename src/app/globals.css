@@ -503,7 +503,7 @@ body::before {
   height: 130px;
   background: var(--bg-3);
   border: 1px solid var(--line);
-  border-radius: 0 0 16px 16px;
+  border-radius: 16px;
   overflow: hidden;
 }
 

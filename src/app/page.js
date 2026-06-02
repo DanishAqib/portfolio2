@@ -157,13 +157,6 @@ function AgentChar({ color, label, icon, dur, delay, dir }) {
 function AgentScene() {
   return (
     <div className="agent-scene-wrap">
-      <div className="portrait-hero-frame" data-hover>
-        <div className="portrait-glow" />
-        <img className="vector-img" src="/images/portrait-vector-nobg.png" alt="Danish Aqib" />
-        <div className="portrait-caption">
-          <span className="dot" />DANISH.AQIB · FULL STACK ENGINEER
-        </div>
-      </div>
       <div className="agent-stage">
         <div className="agent-stage-label">// agents at work</div>
         {AGENTS_DATA.map(a => <AgentChar key={a.id} {...a} />)}
