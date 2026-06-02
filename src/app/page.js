@@ -86,6 +86,73 @@ function useStickyStack() {
   }, []);
 }
 
+// --- Terminal Hero ---
+const TERMINAL_SEQ = [
+  { type: 'prompt', text: 'deploy --env production crewforge' },
+  { type: 'out',     text: 'connecting to aws...' },
+  { type: 'out',     text: 'bundling 47 modules...' },
+  { type: 'success', text: '✓ live → crewforge.io  (11s)' },
+  { type: 'gap' },
+  { type: 'prompt', text: 'agent run --task "fix checkout drop"' },
+  { type: 'out',     text: 'analysing funnel data...' },
+  { type: 'success', text: '✓ patch shipped → +23% CVR' },
+  { type: 'gap' },
+  { type: 'prompt', text: 'status' },
+  { type: 'info',    text: '⬡  5 apps in production' },
+  { type: 'info',    text: '★  4.9 / 5  ·  31 reviews' },
+  { type: 'info',    text: '∞  14 countries  ·  4+ years' },
+];
+
+const LINE_DELAY = { prompt: 700, out: 280, success: 320, info: 220, gap: 150 };
+
+function TerminalWindow() {
+  const [count, setCount] = useState(0);
+  const [fading, setFading] = useState(false);
+
+  useEffect(() => {
+    if (fading) {
+      const t = setTimeout(() => { setCount(0); setFading(false); }, 500);
+      return () => clearTimeout(t);
+    }
+    if (count >= TERMINAL_SEQ.length) {
+      const t = setTimeout(() => setFading(true), 2800);
+      return () => clearTimeout(t);
+    }
+    const line = TERMINAL_SEQ[count];
+    const t = setTimeout(() => setCount(c => c + 1), LINE_DELAY[line.type] ?? 300);
+    return () => clearTimeout(t);
+  }, [count, fading]);
+
+  return (
+    <div className="terminal-card" style={{ opacity: fading ? 0 : 1, transition: 'opacity 0.4s' }}>
+      <div className="terminal-bar">
+        <span className="terminal-dot red" />
+        <span className="terminal-dot yellow" />
+        <span className="terminal-dot green" />
+        <span className="terminal-title">danish@portfolio — zsh</span>
+      </div>
+      <div className="terminal-body">
+        {TERMINAL_SEQ.slice(0, count).map((line, i) =>
+          line.type === 'gap'
+            ? <div key={i} style={{ height: 4 }} />
+            : (
+              <div key={i} className={`term-line term-${line.type}`}>
+                {line.type === 'prompt' && <span className="term-ps">~ $&nbsp;</span>}
+                <span className={`term-${line.type === 'prompt' ? 'cmd' : line.type}`}>{line.text}</span>
+              </div>
+            )
+        )}
+        {!fading && count < TERMINAL_SEQ.length && (
+          <div className="term-line">
+            {TERMINAL_SEQ[count]?.type === 'prompt' && <span className="term-ps">~ $&nbsp;</span>}
+            <span className="term-cursor" />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // --- Robot SVG Character ---
 function RobotSVG({ color = "var(--accent)" }) {
   return (
@@ -157,6 +224,7 @@ function AgentChar({ color, label, icon, dur, delay, dir }) {
 function AgentScene() {
   return (
     <div className="agent-scene-wrap">
+      <TerminalWindow />
       <div className="agent-stage">
         <div className="agent-stage-label">// agents at work</div>
         {AGENTS_DATA.map(a => <AgentChar key={a.id} {...a} />)}
