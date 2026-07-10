@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { SITE, PROJECTS, SERVICES, TESTIMONIALS } from './data';
 
 // --- Cursor ---
@@ -58,6 +58,130 @@ function useScrollReveal() {
   }, []);
 }
 
+// small deterministic PRNG so the "random" weave is stable across rebuilds
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// --- Scroll Progress Spine (winding line behind the sections) ---
+function ScrollSpine() {
+  const fillRef = useRef(null);
+  const cometRef = useRef(null);
+  const lenRef = useRef(0);
+  const [path, setPath] = useState("");
+  const [dims, setDims] = useState({ w: 0, h: 0 });
+
+  // Build a smooth, randomly-weaving path spanning the full page height.
+  useEffect(() => {
+    const build = () => {
+      const w = document.documentElement.clientWidth;
+      const h = Math.max(document.documentElement.scrollHeight, window.innerHeight);
+      const mobile = w < 640;
+      const mx = mobile ? w * 0.2 : w * 0.1;     // horizontal inset of the swings
+      const seg = mobile ? 460 : 560;            // vertical distance between swings
+      const count = Math.max(3, Math.round(h / seg));
+      const lo = mx, hi = w - mx, span = hi - lo;
+      const heroH = mobile ? Math.min(h * 0.92, window.innerHeight + 120) : Math.min(h * 0.88, window.innerHeight + 80);
+
+      // random x at each waypoint, but always a decent swing away from the last.
+      // start pinned to the left side so the line enters from the top-left.
+      const rand = mulberry32(0x9e3779b9);
+      const startX = mobile ? mx * 0.15 : mx * 0.08;
+      const xs = [startX, startX];
+      const ys = [0, heroH];
+      let prev = startX;
+      const remaining = Math.max(1, count - 1);
+      for (let k = 1; k <= remaining; k++) {
+        let x = prev, tries = 0;
+        do { x = lo + rand() * span; tries++; }
+        while (Math.abs(x - prev) < span * 0.42 && tries < 6);
+        xs.push(x);
+        prev = x;
+      }
+
+      const tailSteps = xs.length - 2;
+      for (let k = 1; k <= tailSteps; k++) {
+        ys.push(heroH + ((h - heroH) * k) / tailSteps);
+      }
+
+      const pts = xs.map((x, k) => [x, ys[k]]);
+      let d = `M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
+      for (let k = 1; k < pts.length; k++) {
+        const [x0, y0] = pts[k - 1];
+        const [x1, y1] = pts[k];
+        const dy = (y1 - y0) * 0.5;             // vertical tangents → smooth S-curves
+        d += ` C ${x0.toFixed(1)} ${(y0 + dy).toFixed(1)}, ${x1.toFixed(1)} ${(y1 - dy).toFixed(1)}, ${x1.toFixed(1)} ${y1.toFixed(1)}`;
+      }
+      setDims({ w, h });
+      setPath(d);
+    };
+    build();
+    window.addEventListener("resize", build);
+    const ro = new ResizeObserver(build);
+    ro.observe(document.body);
+    return () => { window.removeEventListener("resize", build); ro.disconnect(); };
+  }, []);
+
+  // Keep the glow + comet locked to the middle of the viewport as you scroll.
+  useEffect(() => {
+    const fill = fillRef.current;
+    if (!fill || !path) return;
+    const total = fill.getTotalLength();
+    lenRef.current = total;
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      const docH = document.documentElement.scrollHeight;
+      const vh = window.innerHeight;
+      const sy = window.scrollY;
+      const maxScroll = docH - vh;
+      const nb = maxScroll > 0 ? Math.min(1, Math.max(0, sy / maxScroll)) : 0;
+      // ½ viewport ahead normally, ramping to a full viewport at the bottom
+      // so the line reaches all the way down to the footer.
+      const targetY = sy + vh * (0.5 + 0.5 * nb);
+
+      // y increases monotonically along the path → binary-search the length at targetY.
+      // (Mapping by Y instead of arc-length means the comet never lags through wide curves.)
+      let lo = 0, hi = total;
+      for (let i = 0; i < 16; i++) {
+        const mid = (lo + hi) / 2;
+        if (fill.getPointAtLength(mid).y < targetY) lo = mid; else hi = mid;
+      }
+      const len = (lo + hi) / 2;
+      const pt = fill.getPointAtLength(len);
+      document.documentElement.style.setProperty("--scroll-progress", String(docH > 0 ? len / total : 0));
+      if (cometRef.current) cometRef.current.setAttribute("transform", `translate(${pt.x} ${pt.y})`);
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(update); };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    update();
+    return () => { window.removeEventListener("scroll", onScroll); if (raf) cancelAnimationFrame(raf); };
+  }, [path]);
+
+  return (
+    <svg
+      className="scroll-spine"
+      width={dims.w}
+      height={dims.h}
+      viewBox={`0 0 ${dims.w} ${dims.h}`}
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
+      <path className="spine-base" d={path} fill="none" pathLength="1" />
+      <path ref={fillRef} className="spine-fill" d={path} fill="none" pathLength="1" />
+      <g ref={cometRef} className="spine-comet">
+        <circle className="spine-comet-halo" r="11" />
+        <circle className="spine-comet-core" r="4" />
+      </g>
+    </svg>
+  );
+}
+
 // --- Sticky Stack Effect ---
 function useStickyStack() {
   useEffect(() => {
@@ -104,27 +228,41 @@ const TERMINAL_SEQ = [
 ];
 
 const LINE_DELAY = { prompt: 700, out: 280, success: 320, info: 220, gap: 150 };
+const CLEAR_DELAY = 900;
+const RESET_DELAY = 260;
+const CLEAR_TEXT = 'clear';
 
 function TerminalWindow() {
   const [count, setCount] = useState(0);
-  const [fading, setFading] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [clearText, setClearText] = useState('');
 
   useEffect(() => {
-    if (fading) {
-      const t = setTimeout(() => { setCount(0); setFading(false); }, 500);
+    if (clearing) {
+      if (clearText.length < CLEAR_TEXT.length) {
+        const t = setTimeout(() => {
+          setClearText(CLEAR_TEXT.slice(0, clearText.length + 1));
+        }, 85);
+        return () => clearTimeout(t);
+      }
+      const t = setTimeout(() => {
+        setCount(0);
+        setClearText('');
+        setClearing(false);
+      }, RESET_DELAY);
       return () => clearTimeout(t);
     }
     if (count >= TERMINAL_SEQ.length) {
-      const t = setTimeout(() => setFading(true), 2800);
+      const t = setTimeout(() => setClearing(true), CLEAR_DELAY);
       return () => clearTimeout(t);
     }
     const line = TERMINAL_SEQ[count];
     const t = setTimeout(() => setCount(c => c + 1), LINE_DELAY[line.type] ?? 300);
     return () => clearTimeout(t);
-  }, [count, fading]);
+  }, [count, clearing, clearText]);
 
   return (
-    <div className="terminal-card" style={{ opacity: fading ? 0 : 1, transition: 'opacity 0.4s' }}>
+    <div className="terminal-card">
       <div className="terminal-bar">
         <span className="terminal-dot red" />
         <span className="terminal-dot yellow" />
@@ -142,9 +280,16 @@ function TerminalWindow() {
               </div>
             )
         )}
-        {!fading && count < TERMINAL_SEQ.length && (
+        {!clearing && count < TERMINAL_SEQ.length && (
           <div className="term-line">
             {TERMINAL_SEQ[count]?.type === 'prompt' && <span className="term-ps">~ $&nbsp;</span>}
+            <span className="term-cursor" />
+          </div>
+        )}
+        {clearing && (
+          <div className="term-line">
+            <span className="term-ps">~ $&nbsp;</span>
+            <span className="term-cmd">{clearText}</span>
             <span className="term-cursor" />
           </div>
         )}
@@ -329,7 +474,7 @@ function Marquee() {
     "AI AUTOMATION THAT SHIPS",
     "15K+ USERS ON LIVE PLATFORMS",
     "CLIENTS ACROSS 14 COUNTRIES",
-    "5★ RATED ON FIVERR",
+    "5★ RATED · 31 CLIENT REVIEWS",
     "FROM IDEA TO LAUNCHED · FAST",
   ];
   const row = (
@@ -542,43 +687,6 @@ function AboutSection() {
   );
 }
 
-function FiverrSection() {
-  const fiverrSvgPath = "M23.004 15.588a.995.995 0 1 0 .002-1.99.995.995 0 0 0-.002 1.99zm-.996-3.705h-.85c-.546 0-.84.41-.84 1.092v2.466h-1.61v-3.558h-.684c-.547 0-.84.41-.84 1.092v2.466h-1.61v-4.874h1.61v.74c.264-.574.626-.74 1.163-.74h1.972v.74c.264-.574.625-.74 1.162-.74h.527v1.316zm-6.786 1.501h-3.359c.088.546.43.858 1.006.858.43 0 .732-.175.83-.487l1.425.4c-.351.848-1.22 1.364-2.255 1.364-1.748 0-2.549-1.355-2.549-2.515 0-1.14.703-2.505 2.45-2.505 1.856 0 2.471 1.384 2.471 2.408 0 .224-.01.37-.02.477zm-1.562-.945c-.04-.42-.342-.81-.889-.81-.508 0-.81.225-.908.81h1.797zM7.508 15.44h1.416l1.767-4.874h-1.62l-.86 2.837-.878-2.837H5.72l1.787 4.874zm-6.6 0H2.51v-3.558h1.524v3.558h1.591v-4.874H2.51v-.302c0-.332.235-.536.606-.536h.918V8.412H2.85c-1.162 0-1.943.712-1.943 1.755v.4H0v1.316h.908v3.558z";
-
-  return (
-    <div className="fiverr-section reveal">
-      <div className="fiverr-header">
-        <svg viewBox="0 0 24 24" style={{ width: 88, fill: "#1a1a1a" }}>
-          <path d={fiverrSvgPath} />
-        </svg>
-        <span className="badge">Level 2 Seller</span>
-      </div>
-      <div className="fiverr-body">
-        <div className="fiverr-rating">
-          <span className="score">4.9</span>
-          <div>
-            <div className="stars">★★★★★</div>
-            <div className="count">31 reviews · 5 years</div>
-          </div>
-        </div>
-        <div className="fiverr-divider" />
-        <p className="fiverr-quote">
-          "Danish is my go-to developer — builds great sites and gets AI integrated too."
-          <br /><em style={{ fontSize: 11, opacity: 0.7 }}>— fnordshopper, 🇬🇧 UK · repeat client</em>
-        </p>
-      </div>
-      <div className="fiverr-cta">
-        <a href={SITE.fiverr} target="_blank" rel="noopener noreferrer" data-hover>
-          <svg viewBox="0 0 24 24" style={{ width: 18, fill: "#1a1a1a", flexShrink: 0 }}>
-            <path d={fiverrSvgPath} />
-          </svg>
-          Hire me on Fiverr ↗
-        </a>
-      </div>
-    </div>
-  );
-}
-
 function ContactSection() {
   const [copied, setCopied] = useState(false);
   const copy = () => {
@@ -601,9 +709,7 @@ function ContactSection() {
           </button>
           <a href={`https://${SITE.github}`} target="_blank" rel="noopener" data-hover>→ GitHub</a>
           <a href={`https://${SITE.linkedin}`} target="_blank" rel="noopener" data-hover>→ LinkedIn</a>
-        </div>
-        <div style={{ marginTop: 64 }}>
-          <FiverrSection />
+          <a href={SITE.fiverr} target="_blank" rel="noopener noreferrer" data-hover>→ Fiverr</a>
         </div>
       </div>
     </section>
@@ -639,8 +745,7 @@ function Hero() {
   const phrases = useMemo(() => [
     "gets work done.",
     "runs on autopilot.",
-    "clients actually use.",
-    "replaces spreadsheets.",
+    "replaces manual work.",
     "scales as you grow.",
   ], []);
   const [idx, setIdx] = useState(0);
@@ -685,20 +790,17 @@ function Hero() {
         </p>
 
         <div className="cta-row reveal" data-delay="2">
-          <a href="#contact" className="btn primary" data-hover>
+          <a href={`mailto:${SITE.email}`} className="btn primary" data-hover>
             Start a project <span className="arrow">→</span>
           </a>
           <a href="#work" className="btn" data-hover>
             See the work
           </a>
-          <a href={SITE.fiverr} target="_blank" rel="noopener noreferrer" className="btn fiverr" data-hover>
-            Hire on Fiverr ↗
-          </a>
         </div>
 
         <div className="hero-meta reveal" data-delay="3">
           <span>◎ <strong>Islamabad, PKT</strong></span>
-          <span>★ <strong>4.9</strong> on Fiverr</span>
+          <span>★ <strong>4.9</strong> · 31 reviews</span>
           <span>∞ <strong>4+ yrs</strong> shipping</span>
           <span>⬡ <strong>14 countries</strong> served</span>
         </div>
@@ -719,6 +821,8 @@ export default function App() {
     <>
       <div className="cursor-ring" id="cursorRing" />
       <div className="cursor-dot" id="cursorDot" />
+
+      {/* <ScrollSpine /> */}
 
       <nav className="nav">
         <div className="nav-inner">

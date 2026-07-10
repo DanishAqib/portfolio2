@@ -11,6 +11,7 @@
   --font-display: 'JetBrains Mono', ui-monospace, monospace;
   --font-body: 'Inter', system-ui, sans-serif;
   --radius: 10px;
+  --scroll-progress: 0;
 }
 
 [data-theme="light"] {
@@ -34,8 +35,23 @@ body {
   padding: 0;
 }
 
-body {
+html {
   background: var(--bg);
+  /* hide the native scrollbar (scrolling still works) */
+  scrollbar-width: none;          /* Firefox */
+  -ms-overflow-style: none;       /* legacy Edge/IE */
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;                  /* Chrome / Safari */
+}
+
+body {
+  position: relative;             /* containing block for the scroll spine */
+  background: transparent;
   color: var(--fg);
   font-family: var(--font-body);
   font-size: 15px;
@@ -132,6 +148,61 @@ body::before {
   .cursor-ring {
     display: none;
   }
+}
+
+/* --- Scroll Progress Spine (winding line behind the sections) --- */
+.scroll-spine {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: -1;            /* sits behind the sections, above the page bg */
+  pointer-events: none;
+  overflow: visible;
+}
+
+.spine-base {
+  stroke: color-mix(in oklch, var(--line) 45%, transparent);
+  stroke-width: 1.25;
+  opacity: 0.5;
+}
+
+.spine-fill {
+  stroke: var(--accent);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: calc(1 - var(--scroll-progress, 0));
+  opacity: 0.5;                    /* ambient — sits quietly behind the text */
+  filter:
+    drop-shadow(0 0 3px color-mix(in oklch, var(--accent) 55%, transparent))
+    drop-shadow(0 0 7px color-mix(in oklch, var(--accent) 28%, transparent));
+}
+
+.spine-comet-core { fill: var(--accent); }
+.spine-comet-halo { fill: color-mix(in oklch, var(--accent) 25%, transparent); }
+
+.spine-comet {
+  opacity: 0.7;
+  filter:
+    drop-shadow(0 0 5px var(--accent))
+    drop-shadow(0 0 12px color-mix(in oklch, var(--accent) 45%, transparent));
+  animation: spine-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes spine-pulse {
+  0%, 100% { opacity: 0.6; }
+  50%      { opacity: 0.85; }
+}
+
+@media (max-width: 640px) {
+  /* even quieter on phones, where it crosses the reading column */
+  .spine-fill { opacity: 0.32; stroke-width: 1.5; }
+  .spine-base { opacity: 0.35; }
+  .spine-comet { opacity: 0.55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spine-comet { animation: none; }
 }
 
 /* --- Scroll Reveal --- */
@@ -261,6 +332,32 @@ body::before {
   }
 }
 
+@media (max-width: 560px) {
+  .nav-inner {
+    height: 52px;
+    padding: 0 16px;
+  }
+
+  .nav-brand {
+    font-size: 11px;
+    gap: 7px;
+  }
+
+  .nav-brand .dot {
+    width: 6px;
+    height: 6px;
+  }
+
+  .nav-links {
+    gap: 9px;
+    font-size: 10px;
+  }
+
+  .nav-links .sep {
+    color: color-mix(in oklch, var(--line) 65%, transparent);
+  }
+}
+
 /* --- Hero --- */
 .hero {
   min-height: 100vh;
@@ -271,12 +368,62 @@ body::before {
   align-items: center;
 }
 
+.hero-left {
+  min-width: 0;
+}
+
 @media (max-width: 900px) {
   .hero {
     grid-template-columns: 1fr;
     gap: 56px;
     min-height: unset;
     padding: 100px 0 64px;
+  }
+}
+
+@media (max-width: 640px) {
+  .hero {
+    padding: 84px 0 44px;
+    gap: 34px;
+    min-height: unset;
+  }
+
+  .availability {
+    margin-bottom: 22px;
+    font-size: 10px;
+    padding: 5px 12px;
+  }
+
+  .hero-left h1 {
+    font-size: clamp(31px, 8.4vw, 46px);
+    margin-bottom: 22px;
+  }
+
+  .hero-typed-line {
+    min-height: 2.1em;
+    white-space: normal;
+    word-break: break-word;
+  }
+
+  .hero-sub {
+    font-size: 14.5px;
+    margin-bottom: 22px;
+  }
+
+  .cta-row {
+    gap: 8px;
+  }
+
+  .cta-row .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+    padding: 12px 16px;
+  }
+
+  .hero-meta {
+    gap: 12px 18px;
+    margin-top: 26px;
+    padding-top: 20px;
   }
 }
 
@@ -440,11 +587,14 @@ body::before {
 
 /* --- Terminal Hero Card --- */
 .terminal-card {
+  height: 328px;
   border: 1px solid var(--line);
   border-bottom: none;
   border-radius: 16px 16px 0 0;
   overflow: hidden;
   background: var(--bg-2);
+  display: flex;
+  flex-direction: column;
 }
 
 .terminal-bar {
@@ -476,11 +626,12 @@ body::before {
 }
 
 .terminal-body {
+  flex: 1;
+  overflow: hidden;
   padding: 18px 20px 20px;
-  min-height: 220px;
   font-family: var(--font-display);
-  font-size: 11.5px;
-  line-height: 1.9;
+  font-size: 10.5px;
+  line-height: 1.75;
 }
 
 .term-line { display: flex; gap: 4px; }
@@ -707,14 +858,17 @@ body::before {
 }
 
 @media (max-width: 900px) {
+  /* single-column hero stays plain — hide the terminal / agents entirely.
+     (declared after the base .agent-scene-wrap rule so it actually wins) */
   .agent-scene-wrap {
-    order: -1;
+    display: none;
   }
 
   .agent-stage {
     height: 100px;
   }
 }
+
 
 /* --- Marquee --- */
 .marquee {
